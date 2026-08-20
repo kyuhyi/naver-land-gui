@@ -1,7 +1,7 @@
 name: macOS 실행파일 빌드
 
 # PyInstaller 는 크로스 컴파일이 안 된다. 맥용 .app 은 맥에서만 나온다.
-# 맥이 없어도 여기서 대신 빌드해 zip 으로 받으면 된다.
+# 맥이 없어도 여기서 대신 빌드해 릴리스에서 받으면 된다.
 #
 # 돌리는 법: Actions 탭 → 이 워크플로 → Run workflow
 #            또는  gh workflow run build-macos.yml
@@ -13,6 +13,10 @@ on:
   workflow_dispatch:
   push:
     tags: ['v*']
+
+# 릴리스에 자산을 붙이려면 쓰기 권한이 필요하다
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -85,10 +89,58 @@ jobs:
             exit 1
           fi
 
-      - name: 결과물 업로드
+      # 릴리스 자산은 Actions 아티팩트 용량과 별개다.
+      # 아티팩트 용량이 차 있어도 여기로는 올라간다.
+      - name: 릴리스에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=macos-build
+          cat > /tmp/notes.md <<'NOTES'
+          맥용 앱 번들입니다. 쓰는 맥에 맞는 zip 을 받으세요.
+
+          | 파일 | 맥 |
+          |------|-----|
+          | `BSD-NaverLand-macos-arm64.zip` | M1 이후 (Apple Silicon) |
+          | `BSD-NaverLand-macos-x86_64.zip` | 인텔 |
+
+          어느 쪽인지 모르겠으면 터미널에서 `uname -m` — `arm64` 면 위, `x86_64` 면 아래.
+
+          ### 처음 열 때
+
+          서명하지 않은 앱이라 Gatekeeper 가 막습니다. 둘 중 하나로 푸세요.
+
+          ```
+          xattr -dr com.apple.quarantine BSD-NaverLand.app
+          ```
+
+          또는 Finder 에서 앱을 **우클릭 → 열기 → 다시 열기**.
+
+          ### 준비물
+
+          구글 크롬이 설치돼 있어야 하고, **국내 IP** 에서만 조회됩니다.
+          해외에서는 네이버가 응답 자체를 주지 않습니다.
+
+          ### 잘 깔렸는지 확인
+
+          ```
+          BSD-NaverLand.app/Contents/MacOS/BSD-NaverLand --selftest
+          cat ~/Library/Logs/BSD-NaverLand/selftest.log
+          ```
+
+          끝줄이 `SELFTEST PASS` 면 정상입니다.
+          NOTES
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "macOS 실행파일" \
+              --notes-file /tmp/notes.md --prerelease || true
+          gh release upload "$TAG" dist/BSD-NaverLand-macos-*.zip --clobber
+          echo "받는 곳: $(gh release view "$TAG" --json url --jq .url)"
+
+      # 아티팩트도 시도하되, 용량이 차 있어도 빌드를 실패시키지 않는다
+      - name: 아티팩트로도 올리기 (선택)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: BSD-NaverLand-macos-${{ matrix.arch }}
           path: dist/BSD-NaverLand-macos-*.zip
-          if-no-files-found: error
           retention-days: 30
