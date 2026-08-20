@@ -11,20 +11,29 @@ pip install -r requirements.txt
 python app.py
 ```
 
-윈도우에서는 `run.bat` 을 더블클릭해도 됩니다.
+더블클릭으로 열려면 — 윈도우는 `run.bat`, 맥·리눅스는 `run.command`.
 `playwright install` 은 필요 없습니다 — 이미 깔려 있는 구글 크롬을 그대로 씁니다.
 
-준비물: 구글 크롬 설치 · 국내 IP · Python 3.9 이상
+준비물: 구글 크롬 설치 · **국내 IP** · Python 3.9 이상
+(해외·데이터센터 IP 에서는 네이버가 응답 자체를 주지 않습니다.)
 
-### 단독 실행파일(.exe) 로 만들기
+### 단독 실행파일로 만들기
 
 ```bash
 pip install pyinstaller
-python build_exe.py
+python build_app.py
 ```
 
-`dist/BSD-NaverLand.exe` (81MB) 가 나옵니다. 파이썬이 없는 PC 에서도 더블클릭으로
-실행되지만, **구글 크롬은 그 PC 에 설치돼 있어야 합니다** (크롬은 포함되지 않습니다).
+돌린 OS 에 맞는 것이 나옵니다.
+
+| OS | 결과물 |
+|----|--------|
+| Windows | `dist/BSD-NaverLand.exe` (81MB, 한 파일) |
+| macOS | `dist/BSD-NaverLand.app` + 배포용 `BSD-NaverLand-macos-<arch>.zip` |
+| Linux | `dist/BSD-NaverLand/BSD-NaverLand` |
+
+파이썬이 없는 PC 에서도 더블클릭으로 실행되지만,
+**구글 크롬은 그 PC 에 설치돼 있어야 합니다** (크롬은 포함되지 않습니다).
 
 > **실행파일 이름은 반드시 ASCII 로 두세요.** PyInstaller 의 onefile 부트로더는
 > 파일명에 한글이 들어가면 압축을 풀지 못하고 **창도 오류도 없이 종료코드 0 으로
@@ -44,7 +53,7 @@ exe 옆에 `selftest.log` 를 남깁니다. 마지막 줄이 `SELFTEST PASS` 면
 문제 원인을 바로 보고 싶으면 콘솔이 뜨는 폴더 형태로 빌드하세요.
 
 ```bash
-python build_exe.py --debug
+python build_app.py --debug
 ```
 
 ## 화면
@@ -110,7 +119,8 @@ python build_exe.py --debug
 | 429 | 요청이 잦음. 몇 분 뒤 재시도하거나 요청 간격을 1.2초 이상으로 |
 | 인증 거부(401/403) | 떠 있는 크롬 창에서 네이버 부동산을 직접 한 번 열어 본 뒤 재시도 |
 | 응답 없음 | 해외·데이터센터 IP 에서는 응답이 오지 않습니다 |
-| 크롬을 찾지 못함 | 환경변수 `CHROME_PATH` 에 `chrome.exe` 경로를 지정 |
+| 크롬을 찾지 못함 | 환경변수 `CHROME_PATH` 에 크롬 실행파일 경로를 지정 |
+| (맥) 손상된 앱이라며 안 열림 | 서명이 없어서입니다. `xattr -dr com.apple.quarantine <앱>` |
 
 ## 파일
 
@@ -122,7 +132,8 @@ python build_exe.py --debug
 | `theme.py` | 다크 팔레트와 스타일시트 |
 | `naver_land.py` | 조회 엔진 (터미널 단독 실행도 가능) |
 | `assets/` | BSD 로고·심볼 |
-| `build_exe.py` | 단독 실행파일 빌드 (`--debug` 로 콘솔 버전) |
+| `build_app.py` | 실행파일 빌드 — Windows·macOS·Linux (`--debug` 로 콘솔 버전) |
+| `.github/workflows/` | 맥 러너에서 `.app` 빌드 |
 | `selftest.py` | `--selftest` 자가진단 |
 
 터미널만 쓰고 싶다면 엔진을 직접 부를 수 있습니다.

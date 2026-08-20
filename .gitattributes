@@ -1,0 +1,14 @@
+# 기본은 LF. 맥·리눅스에서 셸 스크립트가 CRLF 면 bad interpreter 로 죽는다.
+* text=auto eol=lf
+
+*.sh       text eol=lf
+*.command  text eol=lf
+*.yml      text eol=lf
+*.py       text eol=lf
+
+# 윈도우 배치는 CRLF 라야 안전하다
+*.bat      text eol=crlf
+
+*.png  binary
+*.ico  binary
+*.icns binary

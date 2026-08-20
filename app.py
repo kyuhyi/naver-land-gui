@@ -1094,7 +1094,11 @@ class MainWindow(QMainWindow):
 
 # ══════════════════════════════════════════════════════════════
 def apply_dark_titlebar(win):
-    """윈도우 11/10 제목표시줄까지 어둡게."""
+    """제목표시줄까지 어둡게.
+
+    맥은 번들 Info.plist 의 NSAppearance 로 정하므로 여기서 할 일이 없다.
+    (소스로 실행할 때는 시스템 테마를 따라갑니다.)
+    """
     if sys.platform != "win32":
         return
     try:
@@ -1110,10 +1114,22 @@ def apply_dark_titlebar(win):
 
 
 def _log_dir():
-    """실행파일(.exe) 옆, 개발 중이면 소스 폴더."""
-    if getattr(sys, "frozen", False):
+    """로그를 남길 곳. 맥 앱 번들 안에는 쓰면 안 되므로 사용자 폴더로 뺀다."""
+    if not getattr(sys, "frozen", False):
+        return APP_DIR
+    if sys.platform == "darwin":
+        d = os.path.expanduser("~/Library/Logs/BSD-NaverLand")
+    elif sys.platform.startswith("linux"):
+        d = os.path.join(
+            os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+            "bsd-naverland")
+    else:
         return os.path.dirname(sys.executable)
-    return APP_DIR
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        return os.path.expanduser("~")
+    return d
 
 
 def _install_crash_log():
@@ -1173,8 +1189,8 @@ def main():
         app.setWindowIcon(QIcon(ICON))
 
     ui_font = theme.pick_font(theme.FONT_STACK)
-    mono_font = theme.pick_font(theme.MONO_STACK, "Consolas")
-    app.setFont(QFont(ui_font, 10))
+    mono_font = theme.pick_font(theme.MONO_STACK, theme.default_mono_font())
+    app.setFont(QFont(ui_font, theme.base_point_size()))
     theme.apply_palette(app)
     app.setStyleSheet(theme.stylesheet(ui_font, mono_font))
 

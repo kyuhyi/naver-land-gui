@@ -1,0 +1,94 @@
+name: macOS 실행파일 빌드
+
+# PyInstaller 는 크로스 컴파일이 안 된다. 맥용 .app 은 맥에서만 나온다.
+# 맥이 없어도 여기서 대신 빌드해 zip 으로 받으면 된다.
+#
+# 돌리는 법: Actions 탭 → 이 워크플로 → Run workflow
+#            또는  gh workflow run build-macos.yml
+#
+# 비용: macOS 러너는 분당 사용량이 10배로 계산된다. 두 아키텍처 합쳐
+#       한 번에 대략 100~140분어치가 빠진다. 필요할 때만 돌릴 것.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon
+            label: arm64 (M 시리즈)
+            arch: arm64
+          - os: macos-13          # Intel
+            label: x86_64 (인텔)
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 아키텍처 확인
+        run: |
+          echo "러너: $(uname -m)"
+          python -c "import platform; print('파이썬:', platform.machine())"
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pillow
+
+      - name: 빌드
+        run: python build_app.py
+
+      - name: 번들 점검
+        run: |
+          APP=dist/BSD-NaverLand.app
+          BIN=$APP/Contents/MacOS/BSD-NaverLand
+          test -d "$APP" || { echo "앱 번들이 없습니다"; exit 1; }
+          test -x "$BIN" || { echo "실행 권한이 없습니다"; exit 1; }
+          echo "--- Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier'  "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSAppearance'        "$APP/Contents/Info.plist"
+          echo "--- 크기"
+          du -sh "$APP"
+          echo "--- playwright 드라이버 포함 여부"
+          find "$APP" -name 'cli.js' -path '*playwright*' | head -1
+          find "$APP" -name 'node' -path '*playwright*' | head -1
+
+      - name: 실행 연기 테스트
+        # 네트워크 조회(--selftest)는 여기서 못 한다. 네이버 API 는 국내 IP 에만
+        # 응답하고 GitHub 러너는 해외라 그대로 타임아웃된다.
+        # 대신 화면 없이 띄워서 모듈 누락으로 즉사하지 않는지만 본다.
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          ./dist/BSD-NaverLand.app/Contents/MacOS/BSD-NaverLand &
+          PID=$!
+          sleep 12
+          if kill -0 $PID 2>/dev/null; then
+            echo "OK — 12초간 살아 있음 (기동 성공)"
+            kill $PID 2>/dev/null || true
+          else
+            wait $PID; CODE=$?
+            echo "실패 — 조기 종료 (종료코드 $CODE)"
+            echo "--- 크래시 로그"
+            cat ~/Library/Logs/BSD-NaverLand/error.log 2>/dev/null || echo "(없음)"
+            exit 1
+          fi
+
+      - name: 결과물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: BSD-NaverLand-macos-${{ matrix.arch }}
+          path: dist/BSD-NaverLand-macos-*.zip
+          if-no-files-found: error
+          retention-days: 30

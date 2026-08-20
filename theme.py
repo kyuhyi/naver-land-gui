@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """theme.py — 다크 테마 팔레트와 Qt 스타일시트."""
 
+import sys
+
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
 
 # ── 팔레트 ────────────────────────────────────────────────────
@@ -24,17 +26,45 @@ BLUE   = "#4E8CFF"
 GREEN  = "#3FBF7F"
 AMBER  = "#E2B33C"
 
-FONT_STACK = ['Pretendard', 'Pretendard Variable', 'SUIT', 'Malgun Gothic',
-              'Segoe UI', 'Noto Sans KR']
-MONO_STACK = ['JetBrains Mono', 'D2Coding', 'Cascadia Mono', 'Consolas']
+# 위에서부터 있는 것을 쓴다. 한글이 되는 얼굴만 올려 둔다.
+FONT_STACK = ['Pretendard', 'Pretendard Variable', 'SUIT',
+              'Apple SD Gothic Neo',            # macOS 기본 한글
+              'Malgun Gothic',                  # Windows 기본 한글
+              'Noto Sans KR', 'Noto Sans CJK KR',
+              'Segoe UI', 'Helvetica Neue']
+MONO_STACK = ['JetBrains Mono', 'D2Coding',
+              'SF Mono', 'Menlo',               # macOS
+              'Cascadia Mono', 'Consolas',      # Windows
+              'DejaVu Sans Mono']
 
 
-def pick_font(stack, fallback="Malgun Gothic"):
+def default_ui_font():
+    if sys.platform == 'darwin':
+        return 'Apple SD Gothic Neo'
+    if sys.platform.startswith('linux'):
+        return 'Noto Sans CJK KR'
+    return 'Malgun Gothic'
+
+
+def default_mono_font():
+    if sys.platform == 'darwin':
+        return 'Menlo'
+    if sys.platform.startswith('linux'):
+        return 'DejaVu Sans Mono'
+    return 'Consolas'
+
+
+def base_point_size():
+    """맥은 시스템 기본 본문이 커서 조금 올려 잡는다."""
+    return 13 if sys.platform == 'darwin' else 10
+
+
+def pick_font(stack, fallback=None):
     families = set(QFontDatabase.families())
     for name in stack:
         if name in families:
             return name
-    return fallback
+    return fallback or default_ui_font()
 
 
 def apply_palette(app):
