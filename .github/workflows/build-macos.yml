@@ -69,6 +69,18 @@ jobs:
           find "$APP" -name 'cli.js' -path '*playwright*' | head -1
           find "$APP" -name 'node' -path '*playwright*' | head -1
 
+      - name: 서명 검증
+        # Info.plist 를 고치면 PyInstaller 가 해 둔 ad-hoc 서명이 깨진다.
+        # 깨진 채로 나가면 Apple Silicon 에서 "손상되었기 때문에 열 수 없습니다"
+        # 가 뜨고, 격리 속성 문제가 아니라 xattr 로도 풀리지 않는다.
+        # 여기서 막지 못하면 사용자가 대신 밟는다.
+        run: |
+          APP=dist/BSD-NaverLand.app
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          echo "--- 서명 내용"
+          codesign -dvv "$APP" 2>&1 | grep -E 'Identifier|Signature|Format|TeamIdentifier' || true
+          echo "서명 검증 통과"
+
       - name: 실행 연기 테스트
         # 네트워크 조회(--selftest)는 여기서 못 한다. 네이버 API 는 국내 IP 에만
         # 응답하고 GitHub 러너는 해외라 그대로 타임아웃된다.

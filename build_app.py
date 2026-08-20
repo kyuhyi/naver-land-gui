@@ -22,7 +22,8 @@ macOS 주의
   · 크로스 빌드는 안 됩니다. 맥용 .app 은 맥에서 빌드해야 합니다.
     맥이 없으면 .github/workflows/build-macos.yml 이 GitHub 의 맥 러너에서
     대신 빌드해 줍니다.
-  · 서명하지 않은 앱이라 처음 열 때 Gatekeeper 가 막습니다. 아래 중 하나로:
+  · ad-hoc 서명만 되어 있어(개발자 인증서 없음) 처음 열 때 Gatekeeper 가
+    막습니다. 아래 중 하나로:
         xattr -dr com.apple.quarantine dist/BSD-NaverLand.app
     또는 Finder 에서 앱을 우클릭 → 열기 → 다시 열기.
   · 러너 아키텍처대로 나옵니다(arm64 러너 → Apple Silicon 전용).
@@ -131,6 +132,23 @@ def finish_mac_bundle(app_path):
         log("Info.plist 정리 완료")
     except Exception as e:
         log("Info.plist 수정 실패(무시하고 진행):", e)
+
+    # ── 반드시 다시 서명한다 ──────────────────────────────────
+    # PyInstaller 가 번들을 ad-hoc 서명해 두는데, 위에서 Info.plist 를
+    # 건드리는 순간 그 해시가 깨진다. Apple Silicon 은 서명이 깨진 앱을
+    # 실행 거부하고 "손상되었기 때문에 열 수 없습니다" 를 띄운다.
+    # (격리 속성 문제가 아니라서 xattr 로는 풀리지 않는다.)
+    if shutil.which("codesign"):
+        try:
+            subprocess.check_call(
+                ["codesign", "--force", "--deep", "--sign", "-", app_path])
+            subprocess.check_call(
+                ["codesign", "--verify", "--deep", "--strict", app_path])
+            log("ad-hoc 재서명 · 검증 통과")
+        except subprocess.CalledProcessError as e:
+            sys.exit("재서명 실패 — 이대로 배포하면 맥에서 '손상됨' 이 뜹니다: %s" % e)
+    else:
+        sys.exit("codesign 이 없습니다. Xcode Command Line Tools 를 설치하세요.")
 
     # ditto 로 묶어야 실행 권한과 심볼릭 링크가 살아남는다. zip 으로는 깨진다.
     arch = platform.machine()          # arm64 / x86_64
