@@ -1,0 +1,160 @@
+name: 실행파일 빌드
+
+# 맥용·윈도우용 실행파일을 만들어 릴리스에 올린다.
+#
+# 돌리는 법: Actions 탭 → 이 워크플로 → Run workflow
+#            또는  gh workflow run build.yml
+#
+# 비용: macOS 러너는 분당 10배, Windows 러너는 2배로 계산된다.
+#       세 잡을 다 돌리면 대략 150분어치가 빠진다. 필요할 때만 돌릴 것.
+#
+# 한 가지만 기억하면 된다 — 맥 번들은 Info.plist 를 손대는 순간 PyInstaller 가
+# 해 둔 ad-hoc 서명이 깨지고, 그러면 Apple Silicon 에서 "손상되었기 때문에 열
+# 수 없습니다" 가 뜬다. build_app.py 가 재서명하고, 아래 검증 단계가 다시 확인한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 무엇을 빌드할지
+        type: choice
+        default: 전부
+        options: [전부, 맥만, 윈도우만]
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  TAG: build-latest
+
+jobs:
+  # ── macOS ────────────────────────────────────────────────
+  macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || contains(fromJSON('["전부","맥만"]'), inputs.platform) }}
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: 맥 · arm64 (M 시리즈)
+            arch: arm64
+          - os: macos-13
+            label: 맥 · x86_64 (인텔)
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 아키텍처 확인
+        run: |
+          echo "러너: $(uname -m)"
+          python -c "import platform; print('파이썬:', platform.machine())"
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pillow
+
+      - name: 빌드
+        run: python build_app.py
+
+      - name: 번들 점검
+        run: |
+          APP=dist/BSD-NaverLand.app
+          test -x "$APP/Contents/MacOS/BSD-NaverLand" || { echo "실행 바이너리가 없습니다"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSAppearance'        "$APP/Contents/Info.plist"
+          du -sh "$APP"
+          find "$APP" -name 'node' -path '*playwright*' | head -1
+
+      - name: 서명 검증
+        # 여기서 막지 못하면 받는 사람이 "손상됨" 을 대신 밟는다.
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/BSD-NaverLand.app
+          codesign -dvv dist/BSD-NaverLand.app 2>&1 | grep -E 'Identifier|Signature' || true
+
+      - name: 기동 테스트
+        # 실제 조회(--selftest)는 여기서 못 한다. 네이버 API 는 국내 IP 에만
+        # 응답하고 러너는 해외라 그대로 타임아웃된다. 모듈 누락으로 즉사하지
+        # 않는지만 화면 없이 확인한다.
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          ./dist/BSD-NaverLand.app/Contents/MacOS/BSD-NaverLand &
+          PID=$!
+          sleep 12
+          if kill -0 $PID 2>/dev/null; then
+            echo "OK — 12초간 살아 있음"
+            kill $PID 2>/dev/null || true
+          else
+            wait $PID; echo "실패 — 조기 종료 ($?)"
+            cat ~/Library/Logs/BSD-NaverLand/error.log 2>/dev/null || true
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: BSD-NaverLand-macos-${{ matrix.arch }}
+          path: dist/BSD-NaverLand-macos-*.zip
+          retention-days: 30
+
+      - name: 릴리스에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/release.sh dist/BSD-NaverLand-macos-*.zip
+
+  # ── Windows ──────────────────────────────────────────────
+  windows:
+    if: ${{ github.event_name != 'workflow_dispatch' || contains(fromJSON('["전부","윈도우만"]'), inputs.platform) }}
+    name: 윈도우 · x64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pillow
+
+      - name: 빌드
+        run: python build_app.py
+
+      - name: 기동 테스트
+        shell: bash
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          ./dist/BSD-NaverLand.exe &
+          PID=$!
+          sleep 20
+          if kill -0 $PID 2>/dev/null; then
+            echo "OK — 20초간 살아 있음"
+            kill $PID 2>/dev/null || true
+          else
+            wait $PID; echo "실패 — 조기 종료 ($?)"
+            cat dist/error.log 2>/dev/null || true
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: BSD-NaverLand-windows-x64
+          path: dist/BSD-NaverLand.exe
+          retention-days: 30
+
+      - name: 릴리스에 올리기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/release.sh dist/BSD-NaverLand.exe
