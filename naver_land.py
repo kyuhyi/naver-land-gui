@@ -178,6 +178,26 @@ async ([path, method, body]) => {
 """
 
 
+class _NoHud:
+    """hud.py 가 없거나 꺼져 있을 때 쓰는 빈 껍데기."""
+    def start(self, *a, **k): pass
+    def set(self, *a, **k): pass
+    def ping(self, *a, **k): pass
+    def log(self, *a, **k): pass
+    def cards(self, *a, **k): pass
+    def done(self, *a, **k): pass
+
+
+def _make_hud(page, enabled=True):
+    if not enabled:
+        return _NoHud()
+    try:
+        from hud import Hud
+        return Hud(page, enabled=True)
+    except Exception:
+        return _NoHud()
+
+
 def _filter(trade_types, estate_types):
     """지도·단지 검색에 쓰는 기본 필터. 네이버 화면의 기본값과 같다."""
     return {
@@ -195,7 +215,7 @@ def _filter(trade_types, estate_types):
 class NaverLand:
     """실제 크롬 페이지 안에서 네이버 부동산 API를 호출한다."""
 
-    def __init__(self, headless=False, quiet=False):
+    def __init__(self, headless=False, quiet=False, show_hud=True):
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
@@ -213,15 +233,25 @@ class NaverLand:
         self.page.goto(BASE + "/", wait_until="domcontentloaded", timeout=60000)
         time.sleep(3)
 
+        # 크롬 창 안에 진행 패널을 얹는다. 조회 방식은 그대로라 요청이 늘지 않는다.
+        # 화면이 없는 headless 에서는 의미가 없어 끈다.
+        self.hud = _make_hud(self.page, enabled=show_hud and not headless)
+        self.hud.start("크롬 연결됨 · 대기 중")
+
     def log(self, *a):
+        text = " ".join(str(x) for x in a)
         if not self.quiet:
-            print(*a, flush=True)
+            print(text, flush=True)
+        hud = getattr(self, "hud", None)      # 생성 도중 호출될 수도 있다
+        if hud:
+            hud.log(text)
 
     def sleep(self, seconds):
         """요청 사이 간격. GUI 는 취소에 반응하도록 이 메서드를 덮어쓴다."""
         time.sleep(seconds)
 
     def call(self, path, method="GET", body=None):
+        self.hud.ping(path.split("?")[0])
         res = self.page.evaluate(_FETCH_JS, [path, method, body])
         self.sleep(POLITE_DELAY)                 # 사람 속도 — 줄이지 마세요
         if res["status"] != 200:
@@ -311,6 +341,10 @@ class NaverLand:
         return out
 
     def close(self):
+        try:
+            self.hud.set(state="done")
+        except Exception:
+            pass
         try:
             self.page.close()
         except Exception:
@@ -558,6 +592,8 @@ def main():
     p.add_argument("--headless", action="store_true",
                    help="크롬 창을 띄우지 않는다 (차단 가능성이 있어 권장하지 않음)")
     p.add_argument("--quiet", action="store_true", help="진행 로그를 줄인다")
+    p.add_argument("--no-hud", action="store_true",
+                   help="크롬 창에 진행 패널을 그리지 않는다")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     q = sub.add_parser("region", help="동 이름으로 단지·매물 찾기")
@@ -590,7 +626,8 @@ def main():
     q.add_argument("--csv")
 
     args = p.parse_args()
-    land = NaverLand(headless=args.headless, quiet=args.quiet)
+    land = NaverLand(headless=args.headless, quiet=args.quiet,
+                     show_hud=not args.no_hud)
     try:
         {"region": cmd_region, "complex": cmd_complex,
          "info": cmd_info, "area": cmd_area}[args.cmd](args, land)

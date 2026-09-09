@@ -24,12 +24,14 @@ class UserError(Exception):
 class GuiLand(nl.NaverLand):
     """엔진에 로그 신호와 취소 반응을 붙인 버전."""
 
-    def __init__(self, worker, headless=False):
+    def __init__(self, worker, headless=False, show_hud=True):
         self._w = worker
-        super().__init__(headless=headless, quiet=True)
+        super().__init__(headless=headless, quiet=True, show_hud=show_hud)
 
     def log(self, *a):
-        self._w.log.emit(" ".join(str(x) for x in a))
+        text = " ".join(str(x) for x in a)
+        self._w.log.emit(text)
+        self.hud.log(text)
 
     def sleep(self, seconds):
         # 취소에 빨리 반응하도록 잘게 쪼개 잔다
@@ -73,6 +75,22 @@ class SearchWorker(QThread):
         if self.is_cancelled():
             raise Cancelled()
 
+    # ── 앱 상태줄과 크롬 패널에 같이 알린다 ─────────────────
+    def _say(self, text, phase=None):
+        self.status.emit(text)
+        if self.land:
+            self.land.hud.set(status=text, **({"phase": phase} if phase else {}))
+
+    def _cards(self, rows):
+        """방금 찾은 매물 몇 건을 크롬 패널에 카드로 띄운다."""
+        if not self.land:
+            return
+        self.land.hud.cards([{
+            "name": r.get("단지", ""),
+            "price": r.get("가격", ""),
+            "meta": " · ".join(x for x in (r.get("전용면적"), r.get("층")) if x),
+        } for r in rows[:6]])
+
     # ── 실행 ────────────────────────────────────────────────
     def run(self):
         p = self.p
@@ -80,16 +98,20 @@ class SearchWorker(QThread):
         try:
             self.status.emit("크롬 연결 중…")
             self.progress.emit(0, 0)
-            self.land = GuiLand(self, headless=p.get("headless", False))
+            self.land = GuiLand(self, headless=p.get("headless", False),
+                                show_hud=p.get("show_hud", True))
             self.log.emit("크롬 연결 완료 · 요청 간격 %.1f초" % nl.POLITE_DELAY)
             self._check()
 
             {"region": self._region, "complex": self._complex,
              "info": self._info, "area": self._area}[p["mode"]]()
 
+            self.land.hud.done(True, "완료")
             self.done.emit(True, "완료")
 
         except Cancelled:
+            if self.land:
+                self.land.hud.done(False, "사용자가 중지했습니다.")
             self.done.emit(False, "사용자가 중지했습니다.")
         except UserError as e:
             self.done.emit(False, str(e))
@@ -118,7 +140,7 @@ class SearchWorker(QThread):
     # ── 각 모드 ─────────────────────────────────────────────
     def _region(self):
         p = self.p
-        self.status.emit("'%s' 위치를 찾는 중…" % p["query"])
+        self._say("'%s' 위치를 찾는 중…" % p["query"], phase="지역 검색")
         hits = self.land.find_region(p["query"])
         if not hits:
             raise UserError("'%s' 을(를) 찾지 못했습니다.\n"
@@ -153,11 +175,13 @@ class SearchWorker(QThread):
         self.log.emit("%s (%s) · %s세대 · %s년 준공" % (
             info["name"], info["sector"], info["households"], info["year"]))
 
-        self.status.emit("%s 매물 수집 중…" % info["name"])
+        self._say("%s 매물 수집 중…" % info["name"], phase="매물 수집")
         self.progress.emit(0, 0)
         items = self.land.articles(no, p["trades"])
         rows = [nl.flatten(i, info["name"]) for i in items]
         self.articlesBatch.emit(rows)
+        self._cards(rows)
+        self.land.hud.set(articles=len(rows), complexes=1)
         self.log.emit("매물 %d건" % len(rows))
 
     def _info(self):
@@ -172,7 +196,7 @@ class SearchWorker(QThread):
     # ── 공통: 영역 훑기 ─────────────────────────────────────
     def _scan(self, left, right, bottom, top, filter_word):
         p = self.p
-        self.status.emit("지도 영역 안 단지를 찾는 중…")
+        self._say("지도 영역 안 단지를 찾는 중…", phase="단지 탐색")
         self.progress.emit(0, 0)
         numbers = self.land.complexes_in_area(
             left, right, bottom, top, p["trades"], p["estates"])
@@ -187,7 +211,7 @@ class SearchWorker(QThread):
         targets = []
         n_total = len(numbers)
         eta = int(n_total * (nl.POLITE_DELAY + 0.15))
-        self.status.emit("단지 기본정보 확인 중… (약 %d초 예상)" % eta)
+        self._say("단지 기본정보 확인 중… (약 %d초 예상)" % eta, phase="단지 확인")
         for n, no in enumerate(numbers, 1):
             self._check()
             try:
@@ -202,6 +226,8 @@ class SearchWorker(QThread):
                 continue
             targets.append(info)
             self.progress.emit(n, n_total)
+            self.land.hud.set(status="%s — %s" % (info["name"], info["sector"]),
+                              current=n, total=n_total, complexes=len(targets))
             if n % 10 == 0 or n == n_total:
                 self.log.emit("  단지 확인 %d/%d — 대상 %d개" % (n, n_total, len(targets)))
 
@@ -222,7 +248,9 @@ class SearchWorker(QThread):
         got = 0
         for n, t in enumerate(targets, 1):
             self._check()
-            self.status.emit("매물 수집 중… %d/%d  %s" % (n, total, t["name"]))
+            self._say("매물 수집 중… %d/%d  %s" % (n, total, t["name"]),
+                      phase="매물 수집")
+            self.land.hud.set(current=n, total=total)
             try:
                 items = self.land.articles(t["complexNumber"], p["trades"])
             except Cancelled:
@@ -235,6 +263,8 @@ class SearchWorker(QThread):
             got += len(rows)
             if rows:
                 self.articlesBatch.emit(rows)
+                self._cards(rows)
+            self.land.hud.set(articles=got)
             self.progress.emit(n, total)
             self.log.emit("  [%d/%d] %s — %d건 (누적 %d건)" % (
                 n, total, t["name"], len(rows), got))

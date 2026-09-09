@@ -306,8 +306,17 @@ class MainWindow(QMainWindow):
         ol.setContentsMargins(12, 11, 12, 11)
         ol.setSpacing(9)
 
+        self.chk_hud = QCheckBox("크롬 창에 진행 표시")
+        self.chk_hud.setChecked(True)
+        self.chk_hud.setToolTip(
+            "크롬 창 안에 지금 무엇을 조회하는지 실시간 패널을 그립니다.\n"
+            "요청이 늘지 않아 속도에는 영향이 없습니다.")
+        ol.addWidget(self.chk_hud)
+
         self.chk_headless = QCheckBox("크롬 창 숨김")
         self.chk_headless.setToolTip("차단될 수 있어 권장하지 않습니다.")
+        self.chk_headless.toggled.connect(
+            lambda on: self.chk_hud.setEnabled(not on))
         ol.addWidget(self.chk_headless)
 
         drow = QHBoxLayout()
@@ -698,6 +707,7 @@ class MainWindow(QMainWindow):
         m = self.mode()
         p = {"mode": m,
              "headless": self.chk_headless.isChecked(),
+             "show_hud": self.chk_hud.isChecked(),
              "delay": self.spin_delay.value()}
 
         if m == "region":
@@ -1049,6 +1059,8 @@ class MainWindow(QMainWindow):
         self.spin_delay.setValue(float(s.value("delay", 0.8)))
         self.spin_limit.setValue(int(s.value("limit", 200)))
         self.chk_headless.setChecked(s.value("headless", "false") == "true")
+        self.chk_hud.setChecked(s.value("hud", "true") == "true")
+        self.chk_hud.setEnabled(not self.chk_headless.isChecked())
         tr = _as_list(s.value("trades"))
         if tr:
             self.chips_trade.set_values(tr)
@@ -1071,6 +1083,7 @@ class MainWindow(QMainWindow):
         s.setValue("delay", self.spin_delay.value())
         s.setValue("limit", self.spin_limit.value())
         s.setValue("headless", "true" if self.chk_headless.isChecked() else "false")
+        s.setValue("hud", "true" if self.chk_hud.isChecked() else "false")
         s.setValue("trades", self.chips_trade.values())
         s.setValue("estates", self.chips_estate.values())
 
