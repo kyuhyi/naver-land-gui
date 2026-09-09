@@ -192,6 +192,9 @@ def main():
         "--hidden-import", "theme",
         "--hidden-import", "naver_land",
         "--hidden-import", "selftest",
+        # naver_land 가 try 안에서 늦게 부르므로 정적 분석이 놓친다.
+        # 빠뜨리면 exe 에서만 크롬 패널이 조용히 안 뜬다.
+        "--hidden-import", "hud",
         "--exclude-module", "PySide6.QtWebEngineCore",
         "--exclude-module", "PySide6.Qt3DCore",
         "--exclude-module", "PySide6.QtQuick3D",

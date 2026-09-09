@@ -51,6 +51,10 @@ def run(log_dir, assets_dir):
         land = nl.NaverLand(quiet=True)
         try:
             say("크롬 연결 OK")
+            kind = type(land.hud).__name__
+            say("진행 패널     : %s" % (
+                "OK (크롬 창에 표시)" if kind == "Hud"
+                else "없음 — hud 가 번들에 빠졌습니다 (%s)" % kind))
             info = land.complex_info(TEST_COMPLEX)
             say("단지 정보 OK : %s · %s · %s세대 · %s년 · 매매 %s건" % (
                 info["name"], info["sector"], info["households"],
