@@ -46,8 +46,22 @@ IS_MAC = sys.platform == "darwin"
 IS_WIN = sys.platform == "win32"
 
 
+# 윈도우 기본 콘솔(cp949/cp1252)에서 한글을 찍다 죽지 않게 한다.
+# GitHub 윈도우 러너가 정확히 이 이유로 빌드 전에 UnicodeEncodeError 로 끝났다.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
 def log(*a):
-    print(*a, flush=True)
+    text = " ".join(str(x) for x in a)
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(text.encode(enc, "replace").decode(enc, "replace"), flush=True)
 
 
 # ──────────────────────────────────────────────────────────────

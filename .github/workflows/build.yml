@@ -115,6 +115,10 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || contains(fromJSON('["전부","윈도우만"]'), inputs.platform) }}
     name: 윈도우 · x64
     runs-on: windows-latest
+    # 러너 콘솔이 cp1252 라 한글 출력에서 죽는다. 파이썬 전체를 UTF-8 로.
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
 
     steps:
       - uses: actions/checkout@v4
